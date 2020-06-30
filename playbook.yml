@@ -1,0 +1,101 @@
+
+- name: cai docker thuc hien theo huong dan cai docker thu cong https://www.hostinger.vn/huong-dan/install-docker-ubuntu/
+  hosts: vm
+  tasks: 
+    - name: cập nhật OS 
+      apt: 
+        update_cache: "yes" 
+        force_apt_get: "yes"
+      become: yes
+
+    - name: Tạo mới một protocol repository
+      apt: name={{ item }} state=latest update_cache=yes 
+      loop: [ 'apt-transport-https', 'ca-certificates', 'curl', 'software-properties-common', 'python3-pip', 'virtualenv', 'python3-setuptools']
+      become: yes
+
+    - name: Add Docker GPG apt Key (chèn lệnh cài với key GPG)
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      become: yes
+    
+    - name: thêm Docker APT repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+        state: present
+        update_cache: yes
+
+    - name: Update apt and install docker-ce (Cài đặt phiên bản Community Edition)
+      apt: update_cache=yes name=docker-ce state=latest 
+      become: yes
+    
+    - name: Install Docker Module for Python
+      pip:
+        name: docker
+      become: yes
+      # cài mySQL image lên
+
+- name: Cai mySQL image len server1 
+  hosts: server1
+  become: yes
+  vars:
+    mysql_backups_dir: /var/mysql/backups
+    mysql_character_set: utf8mb4
+    mysql_collation: utf8mb4_unicode_520_ci
+    mysql_conf_dir: /etc/mysql/conf.d
+    mysql_config_mysqld:
+      max_connections: 500
+      skip_name_resolve: "true"
+    mysql_container_name: mysql
+    mysql_env: {}
+    mysql_lib_dir: /var/mysql/lib
+    mysql_network: mysql
+    mysql_port: 3306
+    mysql_state: started
+    mysql_root_password: root
+  tasks:
+    - name: create mysql directory
+      become: true
+      file: 
+        path: "{{item}}"
+        state: directory
+        recurse: yes
+      with_items:
+        - "{{ mysql_backups_dir }}"
+        - "{{ mysql_conf_dir }}"
+        - "{{ mysql_lib_dir }}"
+
+    - name: Copy mysql config files
+      template:
+        src: "templates/{{ item }}.j2"
+        dest: "{{ mysql_conf_dir }}/{{ item }}"
+        force: yes
+      with_items:
+        - "character-set.cnf"
+        - "my.cnf"
+        - "sql-mode.cnf"
+    - name: create docker network
+      docker_network:
+        name: "{{ mysql_network }}"
+        state: present
+        
+    - name: Run mysql 5.7 server
+      docker_container:
+        env:
+          MYSQL_ROOT_PASSWORD: "{{ mysql_root_password }}"
+        image: mysql:5.7
+        labels:
+          traefik.enable: "false"
+        name: "{{ mysql_container_name }}"
+        networks:
+          - name: "{{ mysql_network }}"
+        ports:
+          - "{{ mysql_port }}:3306"
+        pull: true
+        recreate: true
+        restart_policy: always
+        state: "{{ mysql_state }}"
+        volumes:
+          - "{{ mysql_backups_dir }}:/var/backups/mysql"
+          - "{{ mysql_conf_dir }}:/etc/mysql/conf.d"
+          - "{{ mysql_lib_dir }}:/var/lib/mysql"
